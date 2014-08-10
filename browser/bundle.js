@@ -2309,15 +2309,20 @@ module.exports = HierarchicalKey;
 'use strict';
 var coinUtil = require('../util');
 var Key = require('./Key');
+var bignum = require('bignum');
+var coinUtil = require('../util');
 
 var Message = function() {};
 
+//creates DER format signatures.
+//probably not what you want.
 Message.sign = function(str, key) {
   var hash = Message.magicHash(str);
   var sig = key.signSync(hash);
   return sig;
 };
 
+//verifies compressed signatures
 Message.verifyWithPubKey = function(pubkey, message, sig) {
   var hash = Message.magicHash(message);
   var key = new Key();
@@ -2326,6 +2331,22 @@ Message.verifyWithPubKey = function(pubkey, message, sig) {
   key.public = pubkey;
 
   return key.verifySignatureSync(hash, sig);
+};
+
+//creates compressed format signatures.
+//you probably want this, not .sign
+Message.signMessage = function(str, key) {
+  var hash = Message.magicHash(str);
+  var privnum = bignum.fromBuffer(key.private);
+  var sig = Key.signCompressed(hash, privnum);
+  return sig;
+};
+
+//verifies compressed signatures
+Message.verifyMessage = function(pubkeyhash, message, sig) {
+  var hash = Message.magicHash(message);
+
+  return Key.verifyCompressed(hash, sig, pubkeyhash);
 };
 
 //TODO: Message.verify ... with address, not pubkey
@@ -2348,7 +2369,7 @@ Message.magicHash = function(str) {
 module.exports = Message;
 
 }).call(this,require("buffer").Buffer)
-},{"../util":191,"./Key":"ALJ4PS","buffer":95}],"./lib/Message":[function(require,module,exports){
+},{"../util":191,"./Key":"ALJ4PS","bignum":61,"buffer":95}],"./lib/Message":[function(require,module,exports){
 module.exports=require('CBDCgz');
 },{}],"./lib/NetworkMonitor":[function(require,module,exports){
 module.exports=require('qYkfjX');
@@ -2623,7 +2644,7 @@ function Peer(host, port, services) {
       port = parts[1];
     }
     this.host = host;
-    this.port = +port || 8333;
+    this.port = +port || 5223;
   } else if (host instanceof Peer) {
     this.host = host.host;
     this.port = host.port;
@@ -2632,7 +2653,7 @@ function Peer(host, port, services) {
       throw new Error('IPV6 not supported yet! Cannot instantiate host.');
     }
     this.host = Array.prototype.slice.apply(host.slice(12)).join('.');
-    this.port = +port || 8333;
+    this.port = +port || 5223;
   } else {
     throw new Error('Could not instantiate peer, invalid parameter type: ' +
       typeof host);
@@ -5226,8 +5247,8 @@ ScriptInterpreter.prototype.isCanonicalSignature = function(sig) {
 
 module.exports = ScriptInterpreter;
 
-}).call(this,require("/home/maraoz/git/bitcore/node_modules/browserify/node_modules/insert-module-globals/node_modules/process/browser.js"),require("buffer").Buffer)
-},{"../config":"4itQ50","../util":191,"../util/log":"AdF7pF","./Key":"ALJ4PS","./Opcode":"Zm7/h9","./Script":"hQ0t76","/home/maraoz/git/bitcore/node_modules/browserify/node_modules/insert-module-globals/node_modules/process/browser.js":112,"bignum":61,"buffer":95,"buffertools":"fugeBw"}],"./lib/ScriptInterpreter":[function(require,module,exports){
+}).call(this,require("/home/drak/viacore/node_modules/browserify/node_modules/insert-module-globals/node_modules/process/browser.js"),require("buffer").Buffer)
+},{"../config":"4itQ50","../util":191,"../util/log":"AdF7pF","./Key":"ALJ4PS","./Opcode":"Zm7/h9","./Script":"hQ0t76","/home/drak/viacore/node_modules/browserify/node_modules/insert-module-globals/node_modules/process/browser.js":112,"bignum":61,"buffer":95,"buffertools":"fugeBw"}],"./lib/ScriptInterpreter":[function(require,module,exports){
 module.exports=require('Q/ZWXW');
 },{}],"./lib/Transaction":[function(require,module,exports){
 module.exports=require('LJhYtm');
@@ -7095,11 +7116,11 @@ var timeUtil = require('../util/time');
 var Key = require('./Key');
 var PrivateKey = require('./PrivateKey');
 var Address = require('./Address');
+var networks = require('../networks');
 
 function WalletKey(cfg) {
   if (!cfg) cfg = {};
-  if (!cfg.network) throw new Error('network parameter is required');
-  this.network = cfg.network; // required
+  this.network = cfg.network || networks.livenet;
   this.created = cfg.created;
   this.privKey = cfg.privKey;
 };
@@ -7142,7 +7163,7 @@ WalletKey.prototype.fromObj = function(obj) {
 module.exports = WalletKey;
 
 }).call(this,require("buffer").Buffer)
-},{"../util":191,"../util/time":194,"./Address":"G+CcXD","./Key":"ALJ4PS","./PrivateKey":"izTl9z","buffer":95}],61:[function(require,module,exports){
+},{"../networks":"ULNIu2","../util":191,"../util/time":194,"./Address":"G+CcXD","./Key":"ALJ4PS","./PrivateKey":"izTl9z","buffer":95}],61:[function(require,module,exports){
 (function (Buffer){
 var _bnjs = require('bn.js');
 
@@ -7295,9 +7316,7 @@ ECIES.symmetricDecrypt = function(key, encrypted) {
 module.exports = ECIES;
 
 }).call(this,require("buffer").Buffer)
-},{"../common/ECIES":72,"../sjcl":"oLMOpG","buffer":95}],"./lib/Key":[function(require,module,exports){
-module.exports=require('ALJ4PS');
-},{}],"ALJ4PS":[function(require,module,exports){
+},{"../common/ECIES":72,"../sjcl":"oLMOpG","buffer":95}],"ALJ4PS":[function(require,module,exports){
 (function (Buffer){
 var SecureRandom = require('../SecureRandom');
 var bignum = require('bignum');
@@ -7450,10 +7469,71 @@ Key.prototype.verifySignatureSync = function(hash, sig) {
   return v;
 };
 
+Key.sign = function(hash, priv, k) {
+  var d = priv;
+  var n = Point.getN();
+  var e = new bignum(hash);
+
+  do {
+    var k = k || Key.genk();
+    var G = Point.getG();
+    var Q = Point.multiply(G, k);
+    var r = Q.x.mod(n);
+    var s = k.invm(n).mul(e.add(d.mul(r))).mod(n);
+  } while (r.cmp(new bignum(0)) <= 0 || s.cmp(new bignum(0)) <= 0);
+
+  return {r: r, s: s};
+};
+
+Key.signCompressed = function(hash, priv, k) {
+  var sig = Key.sign(hash, priv, k);
+  var r = sig.r;
+  var s = sig.s;
+  var e = bignum.fromBuffer(hash);
+
+  var G = Point.getG();
+  var Q = Point.multiply(G, priv);
+
+  var i = Key.calcPubKeyRecoveryParam(e, r, s, Q);
+
+  var rbuf = r.toBuffer({size: 32});
+  var sbuf = s.toBuffer({size: 32});
+  var ibuf = new Buffer([i]);
+  var buf = Buffer.concat([ibuf, rbuf, sbuf]);
+  return buf;
+};
+
+Key.verifyCompressed = function(hash, sigbuf) {
+  if (sigbuf.length !== 1 + 32 + 32)
+    throw new Error("Invalid length for sigbuf");
+
+  var i = sigbuf[0];
+  if (i < 0 || i > 3)
+    throw new Error("Invalid value for i");
+
+  var rbuf = sigbuf.slice(1, 1 + 32);
+  var sbuf = sigbuf.slice(1 + 32, 1 + 32 + 32);
+  var r = bignum.fromBuffer(rbuf);
+  var s = bignum.fromBuffer(sbuf);
+
+  var sigDER = Key.rs2DER(r, s);
+
+  var e = bignum.fromBuffer(hash);
+
+  var key = new Key();
+  var pub = Key.recoverPubKey(e, r, s, i);
+  var pubbuf = pub.toCompressedPubKey();
+  key.public = pubbuf;
+
+  return key.verifySignatureSync(hash, sigDER);
+};
+
 module.exports = Key;
 
 }).call(this,require("buffer").Buffer)
-},{"../SecureRandom":"p4SiC2","../common/Key":73,"./Point":"6tXgqr","bignum":61,"buffer":95,"elliptic":133,"util":128}],"EYpU62":[function(require,module,exports){
+},{"../SecureRandom":"p4SiC2","../common/Key":73,"./Point":"6tXgqr","bignum":61,"buffer":95,"elliptic":133,"util":128}],"./lib/Key":[function(require,module,exports){
+module.exports=require('ALJ4PS');
+},{}],"EYpU62":[function(require,module,exports){
 (function (Buffer){
 "use strict";
 
@@ -7734,8 +7814,10 @@ module.exports = ECIES;
 },{"../../util":191,"../Key":"ALJ4PS","../Point":"6tXgqr","../SecureRandom":"p4SiC2","buffer":95}],73:[function(require,module,exports){
 (function (Buffer){
 var bignum = require('bignum');
-var Point = require('./Point');
-var SecureRandom = require('./SecureRandom');
+var Point = require('../Point');
+var SecureRandom = require('../SecureRandom');
+var bignum = require('bignum');
+var elliptic = require('elliptic');
 var Key = function() {}
 
 Key.parseDERsig = function(sig) {
@@ -7817,21 +7899,78 @@ Key.rs2DER = function(r, s) {
   return der;
 };
 
-Key.sign = function(hash, priv, k) {
-  var d = priv;
-  var n = Point.getN();
-  var e = new bignum(hash);
+Key.recoverPubKey = function(e, r, s, i) {
+  var bnjs = require('bn.js');
 
-  do {
-    var k = k || Key.genk();
-    var G = Point.getG();
-    var Q = Point.multiply(G, k);
-    var r = Q.x.mod(n);
-    var s = k.invm(n).mul(e.add(d.mul(r))).mod(n);
-  } while (r.cmp(new bignum(0)) <= 0 || s.cmp(new bignum(0)) <= 0);
+  if (i>3 || i<0)
+    throw new Error('Recovery param is more than two bits');
 
-  return {r: r, s: s};
-};
+  e = new bnjs(e.toBuffer({size: 32}));
+  r = new bnjs(r.toBuffer({size: 32}));
+  s = new bnjs(s.toBuffer({size: 32}));
+
+  var ec = elliptic.curves.secp256k1;
+
+  // A set LSB signifies that the y-coordinate is odd
+  var isYOdd = i & 1;
+
+  // The more significant bit specifies whether we should use the
+  // first or second candidate key.
+  var isSecondKey = i >> 1;
+
+  var n = ec.curve.n;
+  var G = ec.curve.g;
+
+  // 1.1 Let x = r + jn
+  var x = isSecondKey ? r.add(n) : r;
+  var R = ec.curve.pointFromX(isYOdd, x.toArray());
+
+  // 1.4 Check that nR is at infinity
+  var nR = R.mul(n);
+
+  //TODO: check that nR is not infinity
+  //assert(curve.isInfinity(nR), 'nR is not a valid curve point');
+
+  // Compute -e from e
+  var eNeg = e.neg().mod(n);
+
+  // 1.6.1 Compute Q = r^-1 (sR - eG)
+  // Q = r^-1 (sR + -eG)
+  var rInv = r.invm(n);
+
+  //var Q = R.multiplyTwo(s, G, eNeg).mul(rInv);
+  var Q = R.mul(s).add(G.mul(eNeg)).mul(rInv);
+  ec.curve.validate(Q);
+  var pubkey = new Point();
+  pubkey.x = bignum(Q.x.toString());
+  pubkey.y = bignum(Q.y.toString());
+
+  return pubkey;
+}
+
+/**
+* Calculate pubkey extraction parameter.
+*
+* When extracting a pubkey from a signature, we have to
+* distinguish four different cases. Rather than putting this
+* burden on the verifier, Bitcoin includes a 2-bit value with the
+* signature.
+*
+* This function simply tries all four cases and returns the value
+* that resulted in a successful pubkey recovery.
+*/
+Key.calcPubKeyRecoveryParam = function(e, r, s, Q) {
+  for (var i = 0; i < 4; i++) {
+    var Qprime = Key.recoverPubKey(e, r, s, i);
+
+    // 1.6.2 Verify Q
+    if (Qprime.x.toString() == Q.x.toString() && Qprime.y.toString() == Q.y.toString()) {
+      return i;
+    }
+  }
+
+  throw new Error('Unable to find valid recovery factor');
+}
 
 Key.genk = function() {
   //TODO: account for when >= n
@@ -7841,7 +7980,7 @@ Key.genk = function() {
 module.exports = Key;
 
 }).call(this,require("buffer").Buffer)
-},{"./Point":75,"./SecureRandom":77,"bignum":61,"buffer":95}],74:[function(require,module,exports){
+},{"../Point":"6tXgqr","../SecureRandom":"p4SiC2","bignum":61,"bn.js":88,"buffer":95,"elliptic":133}],74:[function(require,module,exports){
 (function (Buffer){
 'use strict';
 
@@ -12048,9 +12187,7 @@ module.exports=require('ULNIu2');
 (function (Buffer){
 var Put = require('bufferput');
 var buffertools = require('buffertools');
-var hex = function(hex) {
-  return new Buffer(hex, 'hex');
-};
+var hex = function(hex) {return new Buffer(hex, 'hex');};
 
 exports.livenet = {
   name: 'livenet',
@@ -13064,8 +13201,8 @@ exports.testnet = {
 
 }());
 
-}).call(this,require("/home/maraoz/git/bitcore/node_modules/browserify/node_modules/insert-module-globals/node_modules/process/browser.js"))
-},{"/home/maraoz/git/bitcore/node_modules/browserify/node_modules/insert-module-globals/node_modules/process/browser.js":112}],83:[function(require,module,exports){
+}).call(this,require("/home/drak/viacore/node_modules/browserify/node_modules/insert-module-globals/node_modules/process/browser.js"))
+},{"/home/drak/viacore/node_modules/browserify/node_modules/insert-module-globals/node_modules/process/browser.js":112}],83:[function(require,module,exports){
 (function (Buffer){
 var Chainsaw = require('chainsaw');
 var EventEmitter = require('events').EventEmitter;
@@ -13644,8 +13781,8 @@ function upgradeChainsaw(saw) {
     };
 };
 
-}).call(this,require("/home/maraoz/git/bitcore/node_modules/browserify/node_modules/insert-module-globals/node_modules/process/browser.js"))
-},{"/home/maraoz/git/bitcore/node_modules/browserify/node_modules/insert-module-globals/node_modules/process/browser.js":112,"events":"T9Wsc/","traverse":86}],86:[function(require,module,exports){
+}).call(this,require("/home/drak/viacore/node_modules/browserify/node_modules/insert-module-globals/node_modules/process/browser.js"))
+},{"/home/drak/viacore/node_modules/browserify/node_modules/insert-module-globals/node_modules/process/browser.js":112,"events":"T9Wsc/","traverse":86}],86:[function(require,module,exports){
 module.exports = Traverse;
 function Traverse (obj) {
     if (!(this instanceof Traverse)) return new Traverse(obj);
@@ -14131,8 +14268,8 @@ exports.getRoot = function getRoot (file) {
   }
 }
 
-}).call(this,require("/home/maraoz/git/bitcore/node_modules/browserify/node_modules/insert-module-globals/node_modules/process/browser.js"),"/node_modules/bindings/bindings.js")
-},{"/home/maraoz/git/bitcore/node_modules/browserify/node_modules/insert-module-globals/node_modules/process/browser.js":112,"fs":91,"path":113}],88:[function(require,module,exports){
+}).call(this,require("/home/drak/viacore/node_modules/browserify/node_modules/insert-module-globals/node_modules/process/browser.js"),"/node_modules/bindings/bindings.js")
+},{"/home/drak/viacore/node_modules/browserify/node_modules/insert-module-globals/node_modules/process/browser.js":112,"fs":91,"path":113}],88:[function(require,module,exports){
 // Utils
 
 function assert(val, msg) {
@@ -17132,8 +17269,8 @@ function hasOwnProperty(obj, prop) {
   return Object.prototype.hasOwnProperty.call(obj, prop);
 }
 
-}).call(this,require("/home/maraoz/git/bitcore/node_modules/browserify/node_modules/insert-module-globals/node_modules/process/browser.js"),typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./support/isBuffer":93,"/home/maraoz/git/bitcore/node_modules/browserify/node_modules/insert-module-globals/node_modules/process/browser.js":112,"inherits":111}],95:[function(require,module,exports){
+}).call(this,require("/home/drak/viacore/node_modules/browserify/node_modules/insert-module-globals/node_modules/process/browser.js"),typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
+},{"./support/isBuffer":93,"/home/drak/viacore/node_modules/browserify/node_modules/insert-module-globals/node_modules/process/browser.js":112,"inherits":111}],95:[function(require,module,exports){
 /*!
  * The buffer module from node.js, for the browser.
  *
@@ -20120,8 +20257,8 @@ var substr = 'ab'.substr(-1) === 'b'
     }
 ;
 
-}).call(this,require("/home/maraoz/git/bitcore/node_modules/browserify/node_modules/insert-module-globals/node_modules/process/browser.js"))
-},{"/home/maraoz/git/bitcore/node_modules/browserify/node_modules/insert-module-globals/node_modules/process/browser.js":112}],114:[function(require,module,exports){
+}).call(this,require("/home/drak/viacore/node_modules/browserify/node_modules/insert-module-globals/node_modules/process/browser.js"))
+},{"/home/drak/viacore/node_modules/browserify/node_modules/insert-module-globals/node_modules/process/browser.js":112}],114:[function(require,module,exports){
 (function (global){
 /*! http://mths.be/punycode v1.2.4 by @mathias */
 ;(function(root) {
@@ -22048,8 +22185,8 @@ function indexOf (xs, x) {
   return -1;
 }
 
-}).call(this,require("/home/maraoz/git/bitcore/node_modules/browserify/node_modules/insert-module-globals/node_modules/process/browser.js"))
-},{"./index.js":119,"/home/maraoz/git/bitcore/node_modules/browserify/node_modules/insert-module-globals/node_modules/process/browser.js":112,"buffer":95,"events":"T9Wsc/","inherits":111,"process/browser.js":120,"string_decoder":125}],123:[function(require,module,exports){
+}).call(this,require("/home/drak/viacore/node_modules/browserify/node_modules/insert-module-globals/node_modules/process/browser.js"))
+},{"./index.js":119,"/home/drak/viacore/node_modules/browserify/node_modules/insert-module-globals/node_modules/process/browser.js":112,"buffer":95,"events":"T9Wsc/","inherits":111,"process/browser.js":120,"string_decoder":125}],123:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -23473,7 +23610,7 @@ function parseHost(host) {
 module.exports=require(93)
 },{}],128:[function(require,module,exports){
 module.exports=require(94)
-},{"./support/isBuffer":127,"/home/maraoz/git/bitcore/node_modules/browserify/node_modules/insert-module-globals/node_modules/process/browser.js":112,"inherits":111}],"aXRuS6":[function(require,module,exports){
+},{"./support/isBuffer":127,"/home/drak/viacore/node_modules/browserify/node_modules/insert-module-globals/node_modules/process/browser.js":112,"inherits":111}],"aXRuS6":[function(require,module,exports){
 (function (Buffer){
 function BufferPut () {
   this.words = [];
@@ -36337,7 +36474,7 @@ module.exports = validatorFunctions;
  see: https://github.com/dcodeIO/ByteBuffer.js for details
 */
 (function(r){function s(l){function d(a,b,c){"undefined"===typeof a&&(a=d.DEFAULT_CAPACITY);"undefined"===typeof b&&(b=d.DEFAULT_ENDIAN);"undefined"===typeof c&&(c=d.DEFAULT_NOASSERT);if(!c){a|=0;if(0>a)throw new RangeError("Illegal capacity: 0 <= "+a);if("boolean"!==typeof b)throw new TypeError("Illegal littleEndian: Not a boolean");if("boolean"!==typeof c)throw new TypeError("Illegal noAssert: Not a boolean");}this.buffer=0===a?r:new ArrayBuffer(a);this.view=0===a?null:new DataView(this.buffer);
-this.offset=0;this.markedOffset=-1;this.limit=a;this.littleEndian="undefined"!==typeof b?!!b:!1;this.noAssert=!!c}d.VERSION="3.1.0";d.LITTLE_ENDIAN=!0;d.BIG_ENDIAN=!1;d.DEFAULT_CAPACITY=16;d.DEFAULT_ENDIAN=d.BIG_ENDIAN;d.DEFAULT_NOASSERT=!1;d.Long=l||null;var r=new ArrayBuffer(0);d.allocate=function(a,b,c){return new d(a,b,c)};d.concat=function(a,b,c,e){if("boolean"===typeof b||"string"!==typeof b)e=c,c=b,b=void 0;for(var h=0,f=0,g=a.length,n;f<g;++f)d.isByteBuffer(a[f])||(a[f]=d.wrap(a[f],b)),n=
+this.offset=0;this.markedOffset=-1;this.limit=a;this.littleEndian="undefined"!==typeof b?!!b:!1;this.noAssert=!!c}d.VERSION="3.1.1";d.LITTLE_ENDIAN=!0;d.BIG_ENDIAN=!1;d.DEFAULT_CAPACITY=16;d.DEFAULT_ENDIAN=d.BIG_ENDIAN;d.DEFAULT_NOASSERT=!1;d.Long=l||null;var r=new ArrayBuffer(0);d.allocate=function(a,b,c){return new d(a,b,c)};d.concat=function(a,b,c,e){if("boolean"===typeof b||"string"!==typeof b)e=c,c=b,b=void 0;for(var h=0,f=0,g=a.length,n;f<g;++f)d.isByteBuffer(a[f])||(a[f]=d.wrap(a[f],b)),n=
 a[f].limit-a[f].offset,0<n&&(h+=n);if(0===h)return new d(0,c,e);b=new d(h,c,e);e=new Uint8Array(b.buffer);for(f=0;f<g;)c=a[f++],n=c.limit-c.offset,0>=n||(e.set((new Uint8Array(c.buffer)).subarray(c.offset,c.limit),b.offset),b.offset+=n);b.limit=b.offset;b.offset=0;return b};d.isByteBuffer=function(a){return a&&a instanceof d};d.type=function(){return ArrayBuffer};d.wrap=function(a,b,c,e){"string"!==typeof b&&(e=c,c=b,b=void 0);if("string"===typeof a)switch("undefined"===typeof b&&(b="utf8"),b){case "base64":return d.fromBase64(a,
 c);case "hex":return d.fromHex(a,c);case "binary":return d.fromBinary(a,c);case "utf8":return d.fromUTF8(a,c);case "debug":return d.fromDebug(a,c);default:throw new TypeError("Unsupported encoding: "+b);}if(null===a||"object"!==typeof a)throw new TypeError("Illegal buffer: null or non-object");if(d.isByteBuffer(a))return b=d.prototype.clone.call(a),b.markedOffset=-1,b;if(a instanceof Uint8Array)b=new d(0,c,e),0<a.length&&(b.buffer=a.buffer,b.offset=a.byteOffset,b.limit=a.byteOffset+a.length,b.view=
 0<a.length?new DataView(a.buffer):null);else if(a instanceof ArrayBuffer)b=new d(0,c,e),0<a.byteLength&&(b.buffer=a,b.offset=0,b.limit=a.byteLength,b.view=0<a.byteLength?new DataView(a):null);else if("[object Array]"===Object.prototype.toString.call(a))for(b=new d(a.length,c,e),b.limit=a.length,i=0;i<a.length;++i)b.view.setUint8(i,a[i]);else throw new TypeError("Illegal buffer");return b};d.prototype.writeInt8=function(a,b){var c="undefined"===typeof b;c&&(b=this.offset);if(!this.noAssert){if("number"!==
@@ -36370,8 +36507,8 @@ d.zigZagDecode64=function(a){"number"===typeof a?a=l.fromNumber(a,!1):!1!==a.uns
 b+" (not an integer)");b>>>=0;if(0>b||b+0>this.buffer.byteLength)throw new RangeError("Illegal offset: 0 <= "+b+" (+0) <= "+this.buffer.byteLength);}"number"===typeof a?a=l.fromNumber(a,!1):!1!==a.unsigned&&(a=a.toSigned());var e=d.calculateVarint64(a),h=a.toInt()>>>0,f=a.shiftRightUnsigned(28).toInt()>>>0,g=a.shiftRightUnsigned(56).toInt()>>>0;b+=e;var n=this.buffer.byteLength;b>n&&this.resize((n*=2)>b?n:b);b-=e;switch(e){case 10:this.view.setUint8(b+9,g>>>7&1);case 9:this.view.setUint8(b+8,9!==
 e?g|128:g&127);case 8:this.view.setUint8(b+7,8!==e?f>>>21|128:f>>>21&127);case 7:this.view.setUint8(b+6,7!==e?f>>>14|128:f>>>14&127);case 6:this.view.setUint8(b+5,6!==e?f>>>7|128:f>>>7&127);case 5:this.view.setUint8(b+4,5!==e?f|128:f&127);case 4:this.view.setUint8(b+3,4!==e?h>>>21|128:h>>>21&127);case 3:this.view.setUint8(b+2,3!==e?h>>>14|128:h>>>14&127);case 2:this.view.setUint8(b+1,2!==e?h>>>7|128:h>>>7&127);case 1:this.view.setUint8(b,1!==e?h|128:h&127)}return c?(this.offset+=e,this):e},d.prototype.writeVarint64ZigZag=
 function(a,b){return this.writeVarint64(d.zigZagEncode64(a),b)},d.prototype.readVarint64=function(a){var b="undefined"===typeof a;b&&(a=this.offset);if(!this.noAssert){if("number"!==typeof a||0!==a%1)throw new TypeError("Illegal offset: "+a+" (not an integer)");a>>>=0;if(0>a||a+1>this.buffer.byteLength)throw new RangeError("Illegal offset: 0 <= "+a+" (+1) <= "+this.buffer.byteLength);}var c=a,e=0,d=0,f=0,g=0,g=this.view.getUint8(a++),e=g&127;if(g&128&&(g=this.view.getUint8(a++),e|=(g&127)<<7,g&128&&
-(g=this.view.getUint8(a++),e|=(g&127)<<14,g&128&&(g=this.view.getUint8(a++),e|=(g&127)<<21,g&128&&(g=this.view.getUint8(a++),d=g&127,g&128&&(g=this.view.getUint8(a++),d|=(g&127)<<7,g&128&&(g=this.view.getUint8(a++),d|=(g&127)<<14,g&128&&(g=this.view.getUint8(a++),d|=(g&127)<<21,g&128&&(g=this.view.getUint8(a++),f=g&127,g&128&&(g=this.view.getUint8(a++),f|=(g&127)<<7,g&128))))))))))throw Error("Data must be corrupt: Buffer overrun");e=l.from28Bits(e,d,f,!1);return b?(this.offset=a,e):{value:e,length:a-
-c}},d.prototype.readVarint64ZigZag=function(a){(a=this.readVarint64(a))&&a.value instanceof l?a.value=d.zigZagDecode64(a.value):a=d.zigZagDecode64(a);return a});d.prototype.writeCString=function(a,b){var c="undefined"===typeof b;c&&(b=this.offset);var e,d=a.length;if(!this.noAssert){if("string"!==typeof a)throw new TypeError("Illegal str: Not a string");for(e=0;e<d;++e)if(0===a.charCodeAt(e))throw new RangeError("Illegal str: Contains NULL-characters");if("number"!==typeof b||0!==b%1)throw new TypeError("Illegal offset: "+
+(g=this.view.getUint8(a++),e|=(g&127)<<14,g&128&&(g=this.view.getUint8(a++),e|=(g&127)<<21,g&128&&(g=this.view.getUint8(a++),d=g&127,g&128&&(g=this.view.getUint8(a++),d|=(g&127)<<7,g&128&&(g=this.view.getUint8(a++),d|=(g&127)<<14,g&128&&(g=this.view.getUint8(a++),d|=(g&127)<<21,g&128&&(g=this.view.getUint8(a++),f=g&127,g&128&&(g=this.view.getUint8(a++),f|=(g&127)<<7,g&128))))))))))throw Error("Data must be corrupt: Buffer overrun");e=l.fromBits(e|d<<28,d>>>4|f<<24,!1);return b?(this.offset=a,e):{value:e,
+length:a-c}},d.prototype.readVarint64ZigZag=function(a){(a=this.readVarint64(a))&&a.value instanceof l?a.value=d.zigZagDecode64(a.value):a=d.zigZagDecode64(a);return a});d.prototype.writeCString=function(a,b){var c="undefined"===typeof b;c&&(b=this.offset);var e,d=a.length;if(!this.noAssert){if("string"!==typeof a)throw new TypeError("Illegal str: Not a string");for(e=0;e<d;++e)if(0===a.charCodeAt(e))throw new RangeError("Illegal str: Contains NULL-characters");if("number"!==typeof b||0!==b%1)throw new TypeError("Illegal offset: "+
 b+" (not an integer)");b>>>=0;if(0>b||b+0>this.buffer.byteLength)throw new RangeError("Illegal offset: 0 <= "+b+" (+0) <= "+this.buffer.byteLength);}e=b;d=k.b(k.a(a))[1];b+=d+1;var f=this.buffer.byteLength;b>f&&this.resize((f*=2)>b?f:b);b-=d+1;k.e(k.a(a),function(a){this.view.setUint8(b++,a)}.bind(this));this.view.setUint8(b++,0);return c?(this.offset=b-e,this):d};d.prototype.readCString=function(a){var b="undefined"===typeof a;b&&(a=this.offset);if(!this.noAssert){if("number"!==typeof a||0!==a%1)throw new TypeError("Illegal offset: "+
 a+" (not an integer)");a>>>=0;if(0>a||a+1>this.buffer.byteLength)throw new RangeError("Illegal offset: 0 <= "+a+" (+1) <= "+this.buffer.byteLength);}var c=a,e,d=-1;k.d(function(){if(0===d)return null;if(a>=this.limit)throw RangeError("Illegal range: Truncated data, "+a+" < "+this.limit);return 0===(d=this.view.getUint8(a++))?null:d}.bind(this),e=k.c(),!0);return b?(this.offset=a,e()):{string:e(),length:a-c}};d.prototype.writeIString=function(a,b){var c="undefined"===typeof b;c&&(b=this.offset);if(!this.noAssert){if("string"!==
 typeof a)throw new TypeError("Illegal str: Not a string");if("number"!==typeof b||0!==b%1)throw new TypeError("Illegal offset: "+b+" (not an integer)");b>>>=0;if(0>b||b+0>this.buffer.byteLength)throw new RangeError("Illegal offset: 0 <= "+b+" (+0) <= "+this.buffer.byteLength);}var e=b,d;d=k.b(k.a(a),this.noAssert)[1];b+=4+d;var f=this.buffer.byteLength;b>f&&this.resize((f*=2)>b?f:b);b-=4+d;this.view.setUint32(b,d,this.littleEndian);b+=4;k.e(k.a(a),function(a){this.view.setUint8(b++,a)}.bind(this));
@@ -36400,7 +36537,7 @@ this.buffer=a,this.view=new DataView(a));return this};d.prototype.reverse=functi
 Array.prototype.reverse.call((new Uint8Array(this.buffer)).subarray(a,b));this.view=new DataView(this.buffer);return this};d.prototype.skip=function(a){if(!this.noAssert){if("number"!==typeof a||0!==a%1)throw new TypeError("Illegal length: "+a+" (not an integer)");a|=0}var b=this.offset+a;if(!this.noAssert&&(0>b||b>this.buffer.byteLength))throw new RangeError("Illegal length: 0 <= "+this.offset+" + "+a+" <= "+this.buffer.byteLength);this.offset=b;return this};d.prototype.slice=function(a,b){"undefined"===
 typeof a&&(a=this.offset);"undefined"===typeof b&&(b=this.limit);if(!this.noAssert){if("number"!==typeof a||0!==a%1)throw new TypeError("Illegal begin: Not an integer");a>>>=0;if("number"!==typeof b||0!==b%1)throw new TypeError("Illegal end: Not an integer");b>>>=0;if(0>a||a>b||b>this.buffer.byteLength)throw new RangeError("Illegal range: 0 <= "+a+" <= "+b+" <= "+this.buffer.byteLength);}var c=this.clone();c.offset=a;c.limit=b;return c};d.prototype.toBuffer=function(a){var b=this.offset,c=this.limit;
 if(b>c)var e=b,b=c,c=e;if(!this.noAssert){if("number"!==typeof b||0!==b%1)throw new TypeError("Illegal offset: Not an integer");b>>>=0;if("number"!==typeof c||0!==c%1)throw new TypeError("Illegal limit: Not an integer");c>>>=0;if(0>b||b>c||c>this.buffer.byteLength)throw new RangeError("Illegal range: 0 <= "+b+" <= "+c+" <= "+this.buffer.byteLength);}if(!a&&0===b&&c===this.buffer.byteLength)return this.buffer;if(b===c)return r;a=new ArrayBuffer(c-b);(new Uint8Array(a)).set((new Uint8Array(this.buffer)).subarray(b,
-c),0);return a};d.prototype.toArrayBuffer=d.prototype.toBuffer;d.prototype.toString=function(a){if("undefined"===typeof a)return"ByteBufferAB(offset="+this.offset+",markedOffset="+this.markedOffset+",limit="+this.limit+",capacity="+this.capacity()+")";switch(a){case "utf8":return this.toUTF8();case "base64":return this.toBase64();case "hex":return this.toHex();case "binary":return this.toBinary();case "debug":return this.toDebug();case "columns":return this.o();default:throw Error("Unsupported encoding: "+
+c),0);return a};d.prototype.toArrayBuffer=d.prototype.toBuffer;d.prototype.toString=function(a){if("undefined"===typeof a)return"ByteBufferAB(offset="+this.offset+",markedOffset="+this.markedOffset+",limit="+this.limit+",capacity="+this.capacity()+")";switch(a){case "utf8":return this.toUTF8();case "base64":return this.toBase64();case "hex":return this.toHex();case "binary":return this.toBinary();case "debug":return this.toDebug();case "columns":return this.m();default:throw Error("Unsupported encoding: "+
 a);}};var m="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=",m=m+"";d.prototype.toBase64=function(a,b){"undefined"===typeof a&&(a=this.offset);"undefined"===typeof b&&(b=this.limit);if(!this.noAssert){if("number"!==typeof a||0!==a%1)throw new TypeError("Illegal begin: Not an integer");a>>>=0;if("number"!==typeof b||0!==b%1)throw new TypeError("Illegal end: Not an integer");b>>>=0;if(0>a||a>b||b>this.buffer.byteLength)throw new RangeError("Illegal range: 0 <= "+a+" <= "+b+" <= "+
 this.buffer.byteLength);}if(a===b)return"";for(var c,e,d,f,g,k,l="";a<b;)c=this.view.getUint8(a++),e=(f=a<b)?this.view.getUint8(a++):0,d=(g=a<b)?this.view.getUint8(a++):0,k=c>>2,c=(c&3)<<4|e>>4,e=(e&15)<<2|d>>6,d&=63,g||(d=64,f||(e=64)),l+=m.charAt(k)+m.charAt(c)+m.charAt(e)+m.charAt(d);return l};d.fromBase64=function(a,b,c){if(!c){if("string"!==typeof a)throw new TypeError("Illegal str: Not a string");if(0!==a.length%4)throw new TypeError("Illegal str: Length not a multiple of 4");}var e=a.length,
 h=0,f;for(f=a.length-1;0<=f;--f)if("="===a.charAt(f))h++;else break;if(2<h)throw new TypeError("Illegal str: Suffix is too large");if(0===e)return new d(0,b,c);var g,k,l,p=new d(e/4*3-h,b,c);for(b=f=0;f<e;){h=m.indexOf(a.charAt(f++));g=f<e?m.indexOf(a.charAt(f++)):0;k=f<e?m.indexOf(a.charAt(f++)):0;l=f<e?m.indexOf(a.charAt(f++)):0;if(!c&&(0>h||0>g||0>k||0>l))throw new TypeError("Illegal str: Contains non-base64 characters");p.view.setUint8(b++,h<<2|g>>4);64!==k&&(p.view.setUint8(b++,g<<4&240|k>>2,
@@ -36411,13 +36548,12 @@ e,d="",f="",g="";b<c;){-1!==b&&(e=this.view.getUint8(b),d=16>e?d+("0"+e.toString
 !0;break}m=p=!0}b.limit=b.markedOffset=f;k=!1;break;case ">":if(!c){if(m){q=!0;break}m=!0}b.limit=f;k=!1;break;case "'":if(!c){if(p){q=!0;break}p=!0}b.markedOffset=f;k=!1;break;case " ":k=!1;break;default:if(!c&&k){q=!0;break}g=parseInt(g+a.charAt(h++),16);if(!c&&(isNaN(g)||0>g||255<g))throw new TypeError("Illegal str: Not a debug encoded string");b.view.setUint8(f++,g);k=!0}if(q)throw new TypeError("Illegal str: Invalid symbol at "+h);}if(!c){if(!l||!m)throw new TypeError("Illegal str: Missing offset or limit");
 if(f<b.buffer.byteLength)throw new TypeError("Illegal str: Not a debug encoded string (is it hex?) "+f+" < "+e);}return b};d.prototype.toHex=function(a,b){a="undefined"===typeof a?this.offset:a;b="undefined"===typeof b?this.limit:b;if(!this.noAssert){if("number"!==typeof a||0!==a%1)throw new TypeError("Illegal begin: Not an integer");a>>>=0;if("number"!==typeof b||0!==b%1)throw new TypeError("Illegal end: Not an integer");b>>>=0;if(0>a||a>b||b>this.buffer.byteLength)throw new RangeError("Illegal range: 0 <= "+
 a+" <= "+b+" <= "+this.buffer.byteLength);}for(var c=Array(b-a),e;a<b;)e=this.view.getUint8(a++),16>e?c.push("0",e.toString(16)):c.push(e.toString(16));return c.join("")};d.fromHex=function(a,b,c){if(!c){if("string"!==typeof a)throw new TypeError("Illegal str: Not a string");if(0!==a.length%2)throw new TypeError("Illegal str: Length not a multiple of 2");}var e=a.length;b=new d(e/2|0,b);for(var h,f=0,g=0;f<e;f+=2){h=parseInt(a.substring(f,f+2),16);if(!c&&(!isFinite(h)||0>h||255<h))throw new TypeError("Illegal str: Contains non-hex characters");
-b.view.setUint8(g++,h)}b.limit=g;return b};var k=function(){var a={j:function(a,c){var e=null;"number"===typeof a&&(e=a,a=function(){return null});for(;null!==e||null!==(e=a());)128>e?c(e&127):(2048>e?c(e>>6&31|192):(65536>e?c(e>>12&15|224):(c(e>>18&7|240),c(e>>12&63|128)),c(e>>6&63|128)),c(e&63|128)),e=null},i:function(a,c){function e(a){a=a.slice(0,a.indexOf(null));var b=Error(a.toString());b.name="TruncatedError";b.bytes=a;throw b;}for(var d,f,g,k;null!==(d=a());)if(0===(d&128))c(d);else if(192===
-(d&224))null===(f=a())&&e([d,f]),c((d&31)<<6|f&63);else if(224===(d&240))null!==(f=a())&&null!==(g=a())||e([d,f,g]),c((d&15)<<12|(f&63)<<6|g&63);else if(240===(d&248))null!==(f=a())&&null!==(g=a())&&null!==(k=a())||e([d,f,g,k]),c((d&7)<<18|(f&63)<<12|(g&63)<<6|k&63);else throw RangeError("Illegal starting byte: "+d);},f:function(a,c){for(var e,d=null;null!==(e=null!==d?d:a());)55296<=e&&57343>=e&&null!==(d=a())&&56320<=d&&57343>=d?(c(1024*(e-55296)+d-56320+65536),d=null):c(e);null!==d&&c(d)},g:function(a,
-c){var e=null;"number"===typeof a&&(e=a,a=function(){return null});for(;null!==e||null!==(e=a());)65535>=e?c(e):(e-=65536,c((e>>10)+55296),c(e%1024+56320)),e=null},e:function(b,c){a.f(b,function(b){a.j(b,c)})},d:function(b,c){a.i(b,function(b){a.g(b,c)})},k:function(a){if("number"!==typeof a||a!==a)throw TypeError("Illegal byte: "+typeof a);if(-128>a||255<a)throw RangeError("Illegal byte: "+a);return a},l:function(a){if("number"!==typeof a||a!==a)throw TypeError("Illegal char code: "+typeof a);if(0>
-a||65535<a)throw RangeError("Illegal char code: "+a);return a},m:function(a){if("number"!==typeof a||a!==a)throw TypeError("Illegal code point: "+typeof a);if(0>a||1114111<a)throw RangeError("Illegal code point: "+a);return a},h:function(a){return 128>a?1:2048>a?2:65536>a?3:4},n:function(b){for(var c,d=0;null!==(c=b());)d+=a.h(c);return d},b:function(b){var c=0,d=0;a.f(b,function(b){++c;d+=a.h(b)});return[c,d]}};return a}(),s=String.fromCharCode;k.a=function(a){var b=0;return function(){return b<
-a.length?a.charCodeAt(b++):null}};k.c=function(){var a=[],b=[];return function(){if(0===arguments.length)return b.join("")+s.apply(String,a);1024<a.length+arguments.length&&(b.push(s.apply(String,a)),a.length=0);Array.prototype.push.apply(a,arguments)}};d.prototype.toUTF8=function(a,b){"undefined"===typeof a&&(a=this.offset);"undefined"===typeof b&&(b=this.limit);if(!this.noAssert){if("number"!==typeof a||0!==a%1)throw new TypeError("Illegal begin: Not an integer");a>>>=0;if("number"!==typeof b||
-0!==b%1)throw new TypeError("Illegal end: Not an integer");b>>>=0;if(0>a||a>b||b>this.buffer.byteLength)throw new RangeError("Illegal range: 0 <= "+a+" <= "+b+" <= "+this.buffer.byteLength);}var c=this,d;try{k.d(function(){return a<b?c.view.getUint8(a++):null},d=k.c())}catch(h){if(a!==b)throw new RangeError("Illegal range: Truncated data, "+a+" != "+b);}return d()};d.fromUTF8=function(a,b,c){if(!c&&"string"!==typeof a)throw new TypeError("Illegal str: Not a string");var e=new d(k.b(k.a(a),!0)[1],
-b,c),h=0;k.e(k.a(a),function(a){e.view.setUint8(h++,a)});e.limit=h;return e};return d}"undefined"!=typeof module&&module.exports?module.exports=s(require("long")):"undefined"!==typeof define&&define.amd?define("ByteBuffer",["Math/Long"],function(l){return s(l)}):(r.dcodeIO||(r.dcodeIO={}),r.dcodeIO.ByteBuffer=s(r.dcodeIO.Long))})(this);
+b.view.setUint8(g++,h)}b.limit=g;return b};var k=function(){var a={k:1114111,j:function(a,c){var e=null;"number"===typeof a&&(e=a,a=function(){return null});for(;null!==e||null!==(e=a());)128>e?c(e&127):(2048>e?c(e>>6&31|192):(65536>e?c(e>>12&15|224):(c(e>>18&7|240),c(e>>12&63|128)),c(e>>6&63|128)),c(e&63|128)),e=null},i:function(a,c){function e(a){a=a.slice(0,a.indexOf(null));var b=Error(a.toString());b.name="TruncatedError";b.bytes=a;throw b;}for(var d,f,g,k;null!==(d=a());)if(0===(d&128))c(d);
+else if(192===(d&224))null===(f=a())&&e([d,f]),c((d&31)<<6|f&63);else if(224===(d&240))null!==(f=a())&&null!==(g=a())||e([d,f,g]),c((d&15)<<12|(f&63)<<6|g&63);else if(240===(d&248))null!==(f=a())&&null!==(g=a())&&null!==(k=a())||e([d,f,g,k]),c((d&7)<<18|(f&63)<<12|(g&63)<<6|k&63);else throw RangeError("Illegal starting byte: "+d);},f:function(a,c){for(var e,d=null;null!==(e=null!==d?d:a());)55296<=e&&57343>=e&&null!==(d=a())&&56320<=d&&57343>=d?(c(1024*(e-55296)+d-56320+65536),d=null):c(e);null!==
+d&&c(d)},g:function(a,c){var e=null;"number"===typeof a&&(e=a,a=function(){return null});for(;null!==e||null!==(e=a());)65535>=e?c(e):(e-=65536,c((e>>10)+55296),c(e%1024+56320)),e=null},e:function(b,c){a.f(b,function(b){a.j(b,c)})},d:function(b,c){a.i(b,function(b){a.g(b,c)})},h:function(a){return 128>a?1:2048>a?2:65536>a?3:4},l:function(b){for(var c,d=0;null!==(c=b());)d+=a.h(c);return d},b:function(b){var c=0,d=0;a.f(b,function(b){++c;d+=a.h(b)});return[c,d]}};return a}(),s=String.fromCharCode;
+k.a=function(a){var b=0;return function(){return b<a.length?a.charCodeAt(b++):null}};k.c=function(){var a=[],b=[];return function(){if(0===arguments.length)return b.join("")+s.apply(String,a);1024<a.length+arguments.length&&(b.push(s.apply(String,a)),a.length=0);Array.prototype.push.apply(a,arguments)}};d.prototype.toUTF8=function(a,b){"undefined"===typeof a&&(a=this.offset);"undefined"===typeof b&&(b=this.limit);if(!this.noAssert){if("number"!==typeof a||0!==a%1)throw new TypeError("Illegal begin: Not an integer");
+a>>>=0;if("number"!==typeof b||0!==b%1)throw new TypeError("Illegal end: Not an integer");b>>>=0;if(0>a||a>b||b>this.buffer.byteLength)throw new RangeError("Illegal range: 0 <= "+a+" <= "+b+" <= "+this.buffer.byteLength);}var c=this,d;try{k.d(function(){return a<b?c.view.getUint8(a++):null},d=k.c())}catch(h){if(a!==b)throw new RangeError("Illegal range: Truncated data, "+a+" != "+b);}return d()};d.fromUTF8=function(a,b,c){if(!c&&"string"!==typeof a)throw new TypeError("Illegal str: Not a string");
+var e=new d(k.b(k.a(a),!0)[1],b,c),h=0;k.e(k.a(a),function(a){e.view.setUint8(h++,a)});e.limit=h;return e};return d}"undefined"!=typeof module&&module.exports?module.exports=s(require("long")):"undefined"!==typeof define&&define.amd?define("ByteBuffer",["Math/Long"],function(l){return s(l)}):(r.dcodeIO||(r.dcodeIO={}),r.dcodeIO.ByteBuffer=s(r.dcodeIO.Long))})(this);
 
 },{"long":171}],170:[function(require,module,exports){
 /*
@@ -36566,14 +36702,12 @@ b,c),h=0;k.e(k.a(a),function(a){e.view.setUint8(h++,a)});e.limit=h;return e};ret
             return Long.ZERO;
         } else if (!unsigned && value <= -TWO_PWR_63_DBL) {
             return Long.MIN_SIGNED_VALUE;
-        } else if (unsigned && value <= 0) {
-            return Long.MIN_UNSIGNED_VALUE;
         } else if (!unsigned && value + 1 >= TWO_PWR_63_DBL) {
             return Long.MAX_SIGNED_VALUE;
         } else if (unsigned && value >= TWO_PWR_64_DBL) {
             return Long.MAX_UNSIGNED_VALUE;
         } else if (value < 0) {
-            return Long.fromNumber(-value, false).negate();
+            return Long.fromNumber(-value, unsigned).negate();
         } else {
             return new Long((value % TWO_PWR_32_DBL) | 0, (value / TWO_PWR_32_DBL) | 0, unsigned);
         }
@@ -36593,24 +36727,7 @@ b,c),h=0;k.e(k.a(a),function(a){e.view.setUint8(h++,a)});e.limit=h;return e};ret
     };
 
     /**
-     * Returns a Long representing the 64bit integer that comes by concatenating the given low, middle and high bits.
-     *  Each is assumed to use 28 bits.
-     * @param {number} part0 The low 28 bits
-     * @param {number} part1 The middle 28 bits
-     * @param {number} part2 The high 28 (8) bits
-     * @param {boolean=} unsigned Whether unsigned or not. Defaults to false (signed).
-     * @return {!Long}
-     * @expose
-     */
-    Long.from28Bits = function(part0, part1, part2, unsigned) {
-        // 00000000000000000000000000001111 11111111111111111111111122222222 2222222222222
-        // LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH
-        return Long.fromBits(part0 | (part1 << 28), (part1 >>> 4) | (part2) << 24, unsigned);
-    };
-
-    /**
-     * Returns a Long representation of the given string, written using the given
-     * radix.
+     * Returns a Long representation of the given string, written using the given radix.
      * @param {string} str The textual representation of the Long.
      * @param {(boolean|number)=} unsigned Whether unsigned or not. Defaults to false (signed).
      * @param {number=} radix The radix in which the text is written.
@@ -36618,26 +36735,23 @@ b,c),h=0;k.e(k.a(a),function(a){e.view.setUint8(h++,a)});e.limit=h;return e};ret
      * @expose
      */
     Long.fromString = function(str, unsigned, radix) {
-        if (str.length == 0) {
-            throw(new Error('number format error: empty string'));
-        }
-        if (str === "NaN" || str === "Infinity" || str === "+Infinity" || str === "-Infinity") {
+        if (str.length === 0)
+            throw Error('number format error: empty string');
+        if (str === "NaN" || str === "Infinity" || str === "+Infinity" || str === "-Infinity")
             return Long.ZERO;
-        }
         if (typeof unsigned === 'number') { // For goog.math.Long compatibility
             radix = unsigned;
             unsigned = false;
         }
         radix = radix || 10;
-        if (radix < 2 || 36 < radix) {
-            throw(new Error('radix out of range: ' + radix));
-        }
+        if (radix < 2 || 36 < radix)
+            throw Error('radix out of range: ' + radix);
 
-        if (str.charAt(0) == '-') {
+        var p;
+        if ((p = str.indexOf('-')) > 0)
+            throw Error('number format error: interior "-" character: ' + str);
+        else if (p === 0)
             return Long.fromString(str.substring(1), unsigned, radix).negate();
-        } else if (str.indexOf('-') >= 0) {
-            throw(new Error('number format error: interior "-" character: ' + str));
-        }
 
         // Do several (8) digits each time through the loop, so as to
         // minimize the calls to the very expensive emulated div.
@@ -36822,12 +36936,12 @@ b,c),h=0;k.e(k.a(a),function(a){e.view.setUint8(h++,a)});e.limit=h;return e};ret
 
         // Do several (6) digits each time through the loop, so as to
         // minimize the calls to the very expensive emulated div.
-        var radixToPower = Long.fromNumber(Math.pow(radix, 6));
+        var radixToPower = Long.fromNumber(Math.pow(radix, 6), this.unsigned);
         rem = this;
         var result = '';
         while (true) {
             var remDiv = rem.div(radixToPower);
-            var intval = rem.subtract(remDiv.multiply(radixToPower)).toInt();
+            var intval = rem.subtract(remDiv.multiply(radixToPower)).toInt() >>> 0;
             var digits = intval.toString(radix);
             rem = remDiv;
             if (rem.isZero()) {
@@ -37194,7 +37308,7 @@ b,c),h=0;k.e(k.a(a),function(a){e.view.setUint8(h++,a)});e.limit=h;return e};ret
 
             // Decrease the approximation until it is smaller than the remainder.  Note
             // that if it is too large, the product overflows and is negative.
-            var approxRes = Long.fromNumber(approx, this.unsigned);
+            var approxRes = Long.fromNumber(approx);
             var approxRem = approxRes.multiply(other);
             while (approxRem.isNegative() || approxRem.greaterThan(rem)) {
                 approx -= delta;
@@ -37269,18 +37383,12 @@ b,c),h=0;k.e(k.a(a),function(a){e.view.setUint8(h++,a)});e.limit=h;return e};ret
      * @expose
      */
     Long.prototype.shiftLeft = function(numBits) {
-        numBits &= 63;
-        if (numBits == 0) {
+        if ((numBits &= 63) === 0)
             return this;
-        } else {
-            var low = this.low;
-            if (numBits < 32) {
-                var high = this.high;
-                return Long.fromBits(low << numBits, (high << numBits) | (low >>> (32 - numBits)), this.unsigned);
-            } else {
-                return Long.fromBits(0, low << (numBits - 32), this.unsigned);
-            }
-        }
+        else if (numBits < 32)
+            return Long.fromBits(this.low << numBits, (this.high << numBits) | (this.low >>> (32 - numBits)), this.unsigned);
+        else
+            return Long.fromBits(0, this.low << (numBits - 32), this.unsigned);
     };
 
     /**
@@ -37290,18 +37398,12 @@ b,c),h=0;k.e(k.a(a),function(a){e.view.setUint8(h++,a)});e.limit=h;return e};ret
      * @expose
      */
     Long.prototype.shiftRight = function(numBits) {
-        numBits &= 63;
-        if (numBits == 0) {
+        if ((numBits &= 63) === 0)
             return this;
-        } else {
-            var high = this.high;
-            if (numBits < 32) {
-                var low = this.low;
-                return Long.fromBits((low >>> numBits) | (high << (32 - numBits)), high >> numBits, this.unsigned);
-            } else {
-                return Long.fromBits(high >> (numBits - 32), high >= 0 ? 0 : -1, this.unsigned);
-            }
-        }
+        else if (numBits < 32)
+            return Long.fromBits((this.low >>> numBits) | (this.high << (32 - numBits)), this.high >> numBits, this.unsigned);
+        else
+            return Long.fromBits(this.high >> (numBits - 32), this.high >= 0 ? 0 : -1, this.unsigned);
     };
 
     /**
@@ -40810,8 +40912,8 @@ if (typeof module !== 'undefined' && "exports" in module) {
   module.exports = Step;
 }
 
-}).call(this,require("/home/maraoz/git/bitcore/node_modules/browserify/node_modules/insert-module-globals/node_modules/process/browser.js"))
-},{"/home/maraoz/git/bitcore/node_modules/browserify/node_modules/insert-module-globals/node_modules/process/browser.js":112}],"kytKTK":[function(require,module,exports){
+}).call(this,require("/home/drak/viacore/node_modules/browserify/node_modules/insert-module-globals/node_modules/process/browser.js"))
+},{"/home/drak/viacore/node_modules/browserify/node_modules/insert-module-globals/node_modules/process/browser.js":112}],"kytKTK":[function(require,module,exports){
 (function (Buffer){
 exports.patch = function(Buffers) {
   Buffers.prototype.skip = function (i) {
@@ -41340,8 +41442,6 @@ exports.curtime = function curtime() {
   return Math.round(Date.now() / 1000);
 }
 
-},{}],"./util/util":[function(require,module,exports){
-module.exports=require('ACyo5H');
 },{}],"ACyo5H":[function(require,module,exports){
 (function (process,Buffer){
 var crypto = require('crypto');
@@ -41831,5 +41931,7 @@ exports.BIT = 100;
 
 var MAX_TARGET = exports.MAX_TARGET = new Buffer('00000000FFFF0000000000000000000000000000000000000000000000000000', 'hex');
 
-}).call(this,require("/home/maraoz/git/bitcore/node_modules/browserify/node_modules/insert-module-globals/node_modules/process/browser.js"),require("buffer").Buffer)
-},{"../lib/sjcl":"oLMOpG","/home/maraoz/git/bitcore/node_modules/browserify/node_modules/insert-module-globals/node_modules/process/browser.js":112,"bignum":61,"binary":83,"buffer":95,"bufferput":"aXRuS6","buffertools":"fugeBw","crypto":99,"hash.js":155}]},{},[])
+}).call(this,require("/home/drak/viacore/node_modules/browserify/node_modules/insert-module-globals/node_modules/process/browser.js"),require("buffer").Buffer)
+},{"../lib/sjcl":"oLMOpG","/home/drak/viacore/node_modules/browserify/node_modules/insert-module-globals/node_modules/process/browser.js":112,"bignum":61,"binary":83,"buffer":95,"bufferput":"aXRuS6","buffertools":"fugeBw","crypto":99,"hash.js":155}],"./util/util":[function(require,module,exports){
+module.exports=require('ACyo5H');
+},{}]},{},[])
