@@ -1093,12 +1093,54 @@ Block.prototype.checkBlock = function checkBlock(txs) {
   return true;
 };
 
-Block.getBlockValue = function getBlockValue(height) {
-  var subsidy = 50 * util.COIN;
-  subsidy = subsidy / (Math.pow(2, Math.floor(height / 210000)));
-  subsidy = Math.floor(subsidy);
-  subsidy = new Bignum(subsidy);
-  return subsidy;
+Block.getBlockValue = function getBlockValue(nHeight) {
+    var nSubsidy = 0;
+
+    var tHeight = 5256000; // reduction frequency: 3600 * 365 * 4
+
+    // different zero block period for testnet and mainnet
+    // mainnet not fixed until final release
+    var zeroRewardHeight = 10001;
+
+    var rampHeight = 43200 + zeroRewardHeight; // 4 periods of 10800
+
+    if (nHeight == 0) {
+        // no reward for genesis block
+        nSubsidy = 0;
+    } else if (nHeight == 1) {
+        // first distribution
+        nSubsidy = 10000000;
+    } else if (nHeight <= zeroRewardHeight) {
+        // no block reward to allow difficulty to scale up and prevent instamining
+        nSubsidy = 0;
+    } else if (nHeight <= (zeroRewardHeight + 10800)) {
+        // first 10800 block after zero reward period is 10 coins per block
+        nSubsidy = 10;
+    } else if (nHeight <= rampHeight) {
+        // every 10800 blocks reduce nSubsidy from 8 to 6
+        nSubsidy = (8 - Math.floor((nHeight-zeroRewardHeight-1) / 10800));
+    } else if (nHeight <= tHeight) {
+        // first 4 years
+        nSubsidy = 5;
+    } else if (nHeight <= (2 * tHeight)) {
+        // next 4 years
+        nSubsidy = 4;
+    } else if (nHeight <= (3 * tHeight)) {
+        // next 4 years
+        nSubsidy = 3;
+    } else if (nHeight <= (4 * tHeight)) {
+        // next 4 years
+        nSubsidy = 2;
+    } else if (nHeight <= (5 * tHeight)) {
+        // next 4 year
+        nSubsidy = 1;
+    } else if (nHeight <= (6 * tHeight)) {
+        // next 4 years
+        nSubsidy = 0.5;
+    }
+
+  nSubsidy = Bignum(nSubsidy).mul(util.COIN);
+  return nSubsidy;
 };
 
 Block.prototype.getBlockValue = function getBlockValue() {
@@ -3471,13 +3513,15 @@ var TX_PUBKEY = 1;
 var TX_PUBKEYHASH = 2;
 var TX_MULTISIG = 3;
 var TX_SCRIPTHASH = 4;
+var TX_RETURN = 5;
 
 var TX_TYPES = [
   'unknown',
   'pubkey',
   'pubkeyhash',
   'multisig',
-  'scripthash'
+  'scripthash',
+  'return'
 ];
 
 function Script(buffer) {
@@ -3495,6 +3539,7 @@ Script.TX_PUBKEY = TX_PUBKEY;
 Script.TX_PUBKEYHASH = TX_PUBKEYHASH;
 Script.TX_MULTISIG = TX_MULTISIG;
 Script.TX_SCRIPTHASH = TX_SCRIPTHASH;
+Script.TX_RETURN = TX_RETURN;
 
 Script.prototype.parse = function() {
   this.chunks = [];
@@ -3548,6 +3593,12 @@ Script.prototype.isPubkey = function() {
   return (this.chunks.length == 2 &&
     Buffer.isBuffer(this.chunks[0]) &&
     this.chunks[1] == Opcode.map.OP_CHECKSIG);
+};
+
+Script.prototype.isReturn = function() {
+  return (this.chunks.length == 2 &&
+    Buffer.isBuffer(this.chunks[1]) &&
+    this.chunks[0] == Opcode.map.OP_RETURN);
 };
 
 Script.prototype.isPubkeyHash = function() {
@@ -3742,6 +3793,8 @@ Script.prototype.classify = function() {
     return TX_MULTISIG;
   if (this.isPubkey())
     return TX_PUBKEY;
+  if (this.isReturn())
+    return TX_RETURN;
   return TX_UNKNOWN;
 };
 
