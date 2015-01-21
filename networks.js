@@ -4,27 +4,27 @@ var hex = function(hex) {return new Buffer(hex, 'hex');};
 
 exports.livenet = {
   name: 'livenet',
-  magic: hex('0f68c6cb'),
-  addressVersion: 0x47,
-  privKeyVersion: 199,
-  P2SHVersion: 33,
+  magic: hex('fef5abaa'),
+  addressVersion: 0x49,
+  privKeyVersion: 201,
+  P2SHVersion: 8,
   hkeyPublicVersion: 0x0488b21e,
   hkeyPrivateVersion: 0x0488ade4,
   genesisBlock: {
-    hash: hex('A10B409A53A11D97790D97705AE3ABEA151533C08E1230980476991F00549B4E'),
-    merkle_root: hex('00522753002939C78659B4FDC6ED56C6B6AACDC7586FACF2F6ADA2012ED31703'),
+    hash: hex('96cecbc956d8af5a80ed2979d87ab3c5a993a4f3bd57a3f07e573bc65b090000'),
+    merkle_root: hex('9f379d8ebdae0e96b17cabd4dab4dc8d60dbe3e94f07d88af970cf7af5b1c4f6'),
     height: 0,
-    nonce: 4016033,
+    nonce: 552634,
     version: 1,
     prev_hash: buffertools.fill(new Buffer(32), 0),
-    timestamp: 1405164774,
+    timestamp: 1397400948,
     bits: 0x1e01ffff,
   },
   dnsSeeds: [
-    'seed.viacoin.net',
-    'mainnet.viacoin.net',
+    'dnsseed.whitecoinpool.com',
   ],
-  defaultClientPort: 5223
+  defaultClientPort: 15914,
+  lastPoWBlock: 17000
 };
 
 exports.testnet = {
